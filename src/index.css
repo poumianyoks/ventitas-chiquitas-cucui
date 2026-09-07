@@ -1,0 +1,28 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&display=swap');
+
+html {
+  font-family:
+    'DM Sans',
+    sans-serif;
+
+  background: #fff8f1;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+body,
+button,
+input,
+textarea,
+select {
+  font-family:
+    'DM Sans',
+    sans-serif;
+}
+
+#root {
+  min-height: 100vh;
+}
