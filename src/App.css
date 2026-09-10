@@ -6753,3 +6753,205 @@ footer::before {
     margin-top: 14px !important;
   }
 }
+
+/* ======================================================
+   V9 · PORTADA MÓVIL LLENA Y PROPORCIONADA
+   Usa la pantalla completa sin huecos grandes: logo mayor,
+   contenido más grande y botones más cómodos en teléfono.
+====================================================== */
+@media (max-width: 760px) {
+  .hero {
+    min-height: 100svh !important;
+    height: 100svh !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: clamp(14px, 2.2svh, 22px) !important;
+    padding: max(14px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom)) !important;
+    overflow: hidden !important;
+  }
+
+  .hero-logo-area {
+    order: -1 !important;
+    flex: 0 0 auto !important;
+    width: min(330px, 84vw, 35svh) !important;
+    margin: 0 auto !important;
+    padding: 14px !important;
+    border-radius: 32px !important;
+  }
+
+  .logo-frame {
+    padding: 7px !important;
+    border-radius: 27px !important;
+  }
+
+  .main-logo {
+    border-radius: 21px !important;
+  }
+
+  .hero-badge {
+    display: flex !important;
+    position: relative !important;
+    z-index: 8 !important;
+    margin: -11px auto 0 !important;
+    padding: 6px 13px !important;
+    font-size: 11.5px !important;
+  }
+
+  .hero-copy {
+    flex: 0 0 auto !important;
+    width: min(520px, 100%) !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    margin: 0 auto !important;
+  }
+
+  .mini-brand {
+    margin: 0 auto !important;
+    padding: 9px 18px !important;
+    font-size: clamp(12px, 3.4vw, 14px) !important;
+    letter-spacing: .8px !important;
+  }
+
+  .hero-copy > p {
+    max-width: 500px !important;
+    margin: 12px auto 0 !important;
+    font-size: clamp(14px, 4vw, 17px) !important;
+    line-height: 1.38 !important;
+  }
+
+  .hero-kawaii-tags {
+    width: 100% !important;
+    justify-content: center !important;
+    gap: 8px !important;
+    margin-top: 11px !important;
+  }
+
+  .hero-kawaii-tags span {
+    padding: 6px 10px !important;
+    font-size: clamp(10px, 3vw, 12.5px) !important;
+  }
+
+  .hero-actions {
+    width: min(520px, 100%) !important;
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 14px !important;
+    margin: 16px auto 0 !important;
+    padding-top: 8px !important;
+  }
+
+  .hero-actions .primary-button,
+  .hero-actions .secondary-button {
+    width: 100% !important;
+    min-width: 0 !important;
+    min-height: 64px !important;
+    padding: 0 14px !important;
+    border-radius: 20px 24px 20px 24px !important;
+    gap: 7px !important;
+    font-size: clamp(13px, 3.7vw, 16px) !important;
+    line-height: 1.08 !important;
+  }
+
+  .hero-actions .primary-button svg,
+  .hero-actions .secondary-button svg {
+    flex: 0 0 auto !important;
+  }
+
+  .hero-actions .button-mascot-image {
+    max-width: none !important;
+  }
+}
+
+/* Teléfonos angostos: mantiene dos botones grandes sin desbordar. */
+@media (max-width: 430px) {
+  .hero {
+    gap: clamp(12px, 1.9svh, 18px) !important;
+    padding-left: 14px !important;
+    padding-right: 14px !important;
+  }
+
+  .hero-logo-area {
+    width: min(315px, 86vw, 34svh) !important;
+  }
+
+  .mini-brand {
+    padding: 8px 14px !important;
+    font-size: clamp(11.5px, 3.4vw, 13px) !important;
+  }
+
+  .hero-copy > p {
+    margin-top: 10px !important;
+    font-size: clamp(13.5px, 3.9vw, 15.5px) !important;
+  }
+
+  .hero-kawaii-tags {
+    margin-top: 9px !important;
+    gap: 6px !important;
+  }
+
+  .hero-actions {
+    gap: 11px !important;
+    margin-top: 14px !important;
+  }
+
+  .hero-actions .primary-button,
+  .hero-actions .secondary-button {
+    min-height: 60px !important;
+    padding: 0 10px !important;
+    font-size: clamp(12.5px, 3.6vw, 15px) !important;
+  }
+}
+
+/* Pantallas bajas: ajusta proporcionalmente, sin volver a encoger de más. */
+@media (max-width: 430px) and (max-height: 720px) {
+  .hero {
+    gap: 10px !important;
+    padding-top: 9px !important;
+    padding-bottom: 10px !important;
+  }
+
+  .hero-logo-area {
+    width: min(280px, 76vw, 31svh) !important;
+    padding: 11px !important;
+  }
+
+  .hero-badge {
+    padding: 5px 11px !important;
+    font-size: 10px !important;
+  }
+
+  .mini-brand {
+    padding: 7px 12px !important;
+    font-size: 11px !important;
+  }
+
+  .hero-copy > p {
+    margin-top: 7px !important;
+    font-size: 12.5px !important;
+    line-height: 1.32 !important;
+  }
+
+  .hero-kawaii-tags {
+    margin-top: 6px !important;
+  }
+
+  .hero-kawaii-tags span {
+    padding: 4px 7px !important;
+    font-size: 9.5px !important;
+  }
+
+  .hero-actions {
+    margin-top: 10px !important;
+    padding-top: 6px !important;
+  }
+
+  .hero-actions .primary-button,
+  .hero-actions .secondary-button {
+    min-height: 54px !important;
+    font-size: 12px !important;
+  }
+}
