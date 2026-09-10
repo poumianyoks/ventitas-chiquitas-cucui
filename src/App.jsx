@@ -1513,11 +1513,6 @@ function App() {
             <span>♡</span>
           </div>
 
-          <h1>
-            <span className="hero-title-line">Cositas bonitas</span>
-            <span className="hero-title-accent">para consentirte</span>
-          </h1>
-
           <p>
             Encuentra detallitos, cosméticos,
             papelería y cositas lindas elegidas
@@ -1595,28 +1590,35 @@ function App() {
         </div>
 
         <div className="catalog-toolbar">
-          <div className="category-scroll">
-            {categories.map(
-              (category) => (
-                <button
-                  key={category}
-                  className={
-                    selectedCategory ===
-                    category
-                      ? 'category-button active'
-                      : 'category-button'
-                  }
-                  onClick={() =>
-                    setSelectedCategory(
-                      category,
-                    )
-                  }
-                >
-                  <CategoryIcon category={category} size={16} />
-                  <span className="category-manager-name"><Tags size={16} />{category}</span>
-                </button>
-              ),
-            )}
+          <div className="category-nav-group">
+            <div className="category-swipe-hint" aria-hidden="true">
+              <span>Categorías</span>
+              <small>Desliza <ChevronRight size={15} /></small>
+            </div>
+
+            <div className="category-scroll">
+              {categories.map(
+                (category) => (
+                  <button
+                    key={category}
+                    className={
+                      selectedCategory ===
+                      category
+                        ? 'category-button active'
+                        : 'category-button'
+                    }
+                    onClick={() =>
+                      setSelectedCategory(
+                        category,
+                      )
+                    }
+                  >
+                    <CategoryIcon category={category} size={16} />
+                    <span>{category}</span>
+                  </button>
+                ),
+              )}
+            </div>
           </div>
 
           <button
