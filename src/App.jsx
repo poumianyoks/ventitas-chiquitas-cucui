@@ -2383,8 +2383,7 @@ function App() {
 
             <p>
               Inicia sesión con el correo y
-              contraseña que creaste en
-              Supabase.
+              contraseña del cucui admin .
             </p>
 
             <input
