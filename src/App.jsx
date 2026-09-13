@@ -32,7 +32,7 @@ import {
 import { supabase } from './lib/supabase'
 import './App.css'
 
-const MAX_PRODUCT_IMAGES = 5
+const MAX_PRODUCT_IMAGES = 15
 const MAX_IMAGE_SIDE = 1400
 const WEBP_QUALITY = 0.82
 
@@ -1730,7 +1730,7 @@ function App() {
         ) : (
           <div className="product-grid">
             {visibleProducts.map(
-              (product) => (
+              (product, index) => (
                 <article
                   className="product-card"
                   key={product.id}
@@ -1744,7 +1744,8 @@ function App() {
                         product,
                       )}
                       alt={product.name}
-                      loading="lazy"
+                      loading={index < 6 ? 'eager' : 'lazy'}
+                      fetchPriority={index < 3 ? 'high' : 'auto'}
                       decoding="async"
                     />
 
@@ -2383,7 +2384,8 @@ function App() {
 
             <p>
               Inicia sesión con el correo y
-              contraseña del cucui admin .
+              contraseña que creaste en
+              Supabase.
             </p>
 
             <input
