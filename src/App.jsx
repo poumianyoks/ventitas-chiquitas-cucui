@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   Search,
@@ -31,7 +31,9 @@ import {
 } from 'react-icons/fa'
 
 import { supabase } from './lib/supabase'
-import { RafflePage, RaffleAdmin } from './Raffle'
+// La rifa se descarga solamente cuando alguien la abre.
+const RafflePage = lazy(() => import('./Raffle').then(m => ({ default: m.RafflePage })))
+const RaffleAdmin = lazy(() => import('./Raffle').then(m => ({ default: m.RaffleAdmin })))
 import './App.css'
 
 const MAX_PRODUCT_IMAGES = 15
@@ -2461,22 +2463,26 @@ function App() {
       )}
 
       {raffleOpen && activeRaffle && (
-        <RafflePage
-          raffle={activeRaffle}
-          siteConfig={siteConfig}
-          onClose={() => setRaffleOpen(false)}
-          onRefresh={loadActiveRaffle}
-          adminMode={adminMode}
-          onSiteConfigChanged={(nextConfig) => setSiteConfig((current) => ({...current, ...nextConfig, mascot_layout: {...DEFAULT_MASCOT_LAYOUT, ...(nextConfig?.mascot_layout || {})}}))}
-        />
+        <Suspense fallback={<div className="route-loading" role="status">Cargando rifa...</div>}>
+          <RafflePage
+            raffle={activeRaffle}
+            siteConfig={siteConfig}
+            onClose={() => setRaffleOpen(false)}
+            onRefresh={loadActiveRaffle}
+            adminMode={adminMode}
+            onSiteConfigChanged={(nextConfig) => setSiteConfig((current) => ({...current, ...nextConfig, mascot_layout: {...DEFAULT_MASCOT_LAYOUT, ...(nextConfig?.mascot_layout || {})}}))}
+          />
+        </Suspense>
       )}
 
       {raffleAdminOpen && adminMode && (
-        <RaffleAdmin
-          siteConfig={siteConfig}
-          onClose={() => setRaffleAdminOpen(false)}
-          onChanged={loadActiveRaffle}
-        />
+        <Suspense fallback={<div className="route-loading" role="status">Cargando administración de rifas...</div>}>
+          <RaffleAdmin
+            siteConfig={siteConfig}
+            onClose={() => setRaffleAdminOpen(false)}
+            onChanged={loadActiveRaffle}
+          />
+        </Suspense>
       )}
 
       {designManagerOpen && adminMode && (
