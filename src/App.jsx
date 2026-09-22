@@ -1574,8 +1574,8 @@ function App() {
             <span>❀ Especial</span>
           </div>
 
-          <div className={`hero-actions ${activeRaffle ? 'hero-actions-with-raffle' : ''}`}>
-            {activeRaffle && (
+          <div className={`hero-actions ${activeRaffle?.is_public ? 'hero-actions-with-raffle' : ''}`}>
+            {activeRaffle?.is_public && (
               <button
                 className="raffle-hero-button"
                 onClick={() => setRaffleOpen(true)}
@@ -2474,6 +2474,11 @@ function App() {
           siteConfig={siteConfig}
           onClose={() => setRaffleAdminOpen(false)}
           onChanged={loadActiveRaffle}
+          onPreview={(raffleToPreview) => {
+            setActiveRaffle(raffleToPreview)
+            setRaffleAdminOpen(false)
+            setRaffleOpen(true)
+          }}
         />
       )}
 

@@ -3,7 +3,7 @@ import { X, Clock3, Save, Upload, RotateCcw, Search, LockKeyhole, Check, Gift, C
 import { FaWhatsapp } from 'react-icons/fa'
 import { supabase } from './lib/supabase'
 
-const EMPTY = { prize_name:'', prize_description:'', prize_image_url:'', total_numbers:100, price_per_number:20, draw_at:'', schedule_enabled:false, active:false, status:'DRAFT', sound_enabled:true, confetti_enabled:true }
+const EMPTY = { prize_name:'', prize_description:'', prize_image_url:'', total_numbers:100, price_per_number:20, draw_at:'', schedule_enabled:false, active:false, is_public:false, status:'DRAFT', sound_enabled:true, confetti_enabled:true }
 const pad = (n, total=100) => String(n).padStart(String(Math.max(total, 99)).length, '0')
 const money = n => new Intl.NumberFormat('es-MX',{style:'currency',currency:'MXN',maximumFractionDigits:2}).format(Number(n||0))
 
@@ -349,7 +349,7 @@ function loadCanvasImage(src){
   })
 }
 
-export function RaffleAdmin({ onClose, onChanged }){
+export function RaffleAdmin({ onClose, onChanged, onPreview }){
  const [raffle,setRaffle]=useState(null),[form,setForm]=useState(EMPTY),[numbers,setNumbers]=useState([]),[selected,setSelected]=useState([]),[siteConfig,setSiteConfig]=useState(null),[busy,setBusy]=useState(false),[exporting,setExporting]=useState(false),[error,setError]=useState(''),[jump,setJump]=useState('')
  useEffect(()=>{load()},[])
  async function load(){ const {data:site}=await supabase.from('site_config').select('*').order('id',{ascending:true}).limit(1).maybeSingle(); setSiteConfig(site||null); const {data,error}=await supabase.from('raffles').select('*').order('created_at',{ascending:false}).limit(1).maybeSingle(); if(error){setError(error.message);return} if(data){setRaffle(data);setForm({...data,draw_at:toLocalDateTimeInput(data.draw_at),schedule_enabled:Boolean(data.draw_at)}); const r=await supabase.from('raffle_numbers').select('*').eq('raffle_id',data.id).order('number');setNumbers(r.data||[])} }
@@ -369,6 +369,7 @@ export function RaffleAdmin({ onClose, onChanged }){
       price_per_number:Math.max(0,Number(form.price_per_number)),
       draw_at:form.schedule_enabled&&form.draw_at ? new Date(form.draw_at).toISOString() : null,
       active:Boolean(form.active),
+      is_public:Boolean(form.active && form.is_public),
       status:form.active?'ACTIVE':'DRAFT',
       winner_number:null,
       completed_at:null,
@@ -496,7 +497,15 @@ export function RaffleAdmin({ onClose, onChanged }){
    finally{setExporting(false)}
  }
  function go(){const n=Number(jump);if(!n)return;document.getElementById(`admin-raffle-${n}`)?.scrollIntoView({behavior:'smooth',block:'center'})}
- return <div className="modal-backdrop raffle-admin-backdrop"><div className="raffle-admin-modal" onMouseDown={e=>e.stopPropagation()}><header><div><span className="raffle-kicker"><Ticket size={16}/> ADMINISTRACIÓN</span><h2>Rifas</h2><p>Configura el premio, los números, la publicación y la programación del sorteo.</p></div><button className="modal-close" onClick={onClose}><X/></button></header><form className="raffle-admin-form" onSubmit={save}><div className="raffle-admin-fields"><label className="raffle-switch"><span>Mostrar rifa en la tienda</span><input type="checkbox" checked={form.active} onChange={e=>setForm(f=>({...f,active:e.target.checked}))}/></label><div className="raffle-admin-settings"><label className="raffle-switch"><span><Volume2 size={17}/> Sonido de la ruleta <small>Solo lo configura administración</small></span><input type="checkbox" checked={form.sound_enabled!==false} onChange={e=>setForm(f=>({...f,sound_enabled:e.target.checked}))}/></label><label className="raffle-switch"><span><PartyPopper size={17}/> Mostrar confeti</span><input type="checkbox" checked={form.confetti_enabled!==false} onChange={e=>setForm(f=>({...f,confetti_enabled:e.target.checked}))}/></label></div><label>Nombre del premio<input value={form.prize_name} onChange={e=>setForm(f=>({...f,prize_name:e.target.value}))} placeholder="Ej. Kit Hello Kitty"/></label><label>Descripción<textarea value={form.prize_description} onChange={e=>setForm(f=>({...f,prize_description:e.target.value}))} placeholder="Describe brevemente el premio"/></label><div className="raffle-two"><label>Cantidad de números<input type="number" min="1" max="1000" value={form.total_numbers} onChange={e=>setForm(f=>({...f,total_numbers:e.target.value}))}/></label><label>Precio por número<input type="number" min="0" step="0.01" value={form.price_per_number} onChange={e=>setForm(f=>({...f,price_per_number:e.target.value}))}/></label></div><div className="raffle-schedule-admin">
+ return <div className="modal-backdrop raffle-admin-backdrop"><div className="raffle-admin-modal" onMouseDown={e=>e.stopPropagation()}><header><div><span className="raffle-kicker"><Ticket size={16}/> ADMINISTRACIÓN</span><h2>Rifas</h2><p>Configura el premio, los números, la publicación y la programación del sorteo.</p></div><button className="modal-close" onClick={onClose}><X/></button></header><form className="raffle-admin-form" onSubmit={save}><div className="raffle-admin-fields"><div className="raffle-admin-visibility">
+<label className="raffle-switch"><span>Rifa activa <small>Actívala para configurarla, probarla y usar la vista previa.</small></span><input type="checkbox" checked={Boolean(form.active)} onChange={e=>setForm(f=>({...f,active:e.target.checked,is_public:e.target.checked?f.is_public:false}))}/></label>
+<label className="raffle-switch"><span>Mostrar en el catálogo <small>Si está apagado, los clientes no verán el botón de la rifa.</small></span><input type="checkbox" checked={Boolean(form.is_public)} disabled={!form.active} onChange={e=>setForm(f=>({...f,is_public:e.target.checked}))}/></label>
+<div className={`raffle-visibility-status ${form.active&&form.is_public?'is-public':'is-test'}`}>
+  <b>{form.active&&form.is_public?'RIFA PUBLICADA':form.active?'MODO DE PRUEBA':'RIFA DESACTIVADA'}</b>
+  <small>{form.active&&form.is_public?'Los clientes pueden ver esta rifa en el catálogo.':form.active?'La rifa funciona para administración, pero todavía no aparece a los clientes.':'Activa la rifa cuando quieras comenzar a configurarla y probarla.'}</small>
+</div>
+{raffle&&form.active&&<button type="button" className="raffle-preview-button" onClick={()=>onPreview?.({...raffle,...form,draw_at:form.schedule_enabled&&form.draw_at?new Date(form.draw_at).toISOString():null,is_public:Boolean(form.is_public)})}><Search size={17}/> Vista previa de la rifa</button>}
+</div><div className="raffle-admin-settings"><label className="raffle-switch"><span><Volume2 size={17}/> Sonido de la ruleta <small>Solo lo configura administración</small></span><input type="checkbox" checked={form.sound_enabled!==false} onChange={e=>setForm(f=>({...f,sound_enabled:e.target.checked}))}/></label><label className="raffle-switch"><span><PartyPopper size={17}/> Mostrar confeti</span><input type="checkbox" checked={form.confetti_enabled!==false} onChange={e=>setForm(f=>({...f,confetti_enabled:e.target.checked}))}/></label></div><label>Nombre del premio<input value={form.prize_name} onChange={e=>setForm(f=>({...f,prize_name:e.target.value}))} placeholder="Ej. Kit Hello Kitty"/></label><label>Descripción<textarea value={form.prize_description} onChange={e=>setForm(f=>({...f,prize_description:e.target.value}))} placeholder="Describe brevemente el premio"/></label><div className="raffle-two"><label>Cantidad de números<input type="number" min="1" max="1000" value={form.total_numbers} onChange={e=>setForm(f=>({...f,total_numbers:e.target.value}))}/></label><label>Precio por número<input type="number" min="0" step="0.01" value={form.price_per_number} onChange={e=>setForm(f=>({...f,price_per_number:e.target.value}))}/></label></div><div className="raffle-schedule-admin">
 <label className="raffle-switch raffle-schedule-switch"><span><CalendarDays size={17}/> Programar fecha del sorteo <small>Actívalo cuando quieras mostrar fecha, hora y contador.</small></span><input type="checkbox" checked={Boolean(form.schedule_enabled)} onChange={e=>setForm(f=>({...f,schedule_enabled:e.target.checked,draw_at:e.target.checked?f.draw_at:''}))}/></label>
 {form.schedule_enabled
   ? <label className="raffle-schedule-date">Fecha y hora del sorteo<input type="datetime-local" value={form.draw_at||''} onChange={e=>setForm(f=>({...f,draw_at:e.target.value}))}/></label>
