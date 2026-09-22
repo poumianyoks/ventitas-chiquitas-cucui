@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { X, Clock3, Save, Upload, RotateCcw, Search, LockKeyhole, Check, Gift, CalendarDays, Users, PartyPopper, Volume2, Heart, Sparkles, Ticket, Trophy, Star, BadgeDollarSign, Download, ImageDown } from 'lucide-react'
+import { X, Clock3, Save, Upload, RotateCcw, Search, LockKeyhole, Check, Gift, CalendarDays, Users, PartyPopper, Volume2, Heart, Sparkles, Ticket, Trophy, Star, BadgeDollarSign, Download, ImageDown, Move, Maximize2, Pencil } from 'lucide-react'
 import { FaWhatsapp } from 'react-icons/fa'
 import { supabase } from './lib/supabase'
 
@@ -19,8 +19,40 @@ function raffleMascotStyle(siteConfig,key){
   const v={...RAFFLE_MASCOT_DEFAULTS[key],...(siteConfig?.mascot_layout?.[key]||{})}
   return {'--raffle-mascot-size':`${v.size}px`,'--raffle-mascot-x':`${v.x}px`,'--raffle-mascot-y':`${v.y}px`}
 }
-function RaffleMascot({src,siteConfig,layoutKey,className=''}) {
-  return <img className={`raffle-mascot ${className}`} src={src} alt="" aria-hidden="true" draggable="false" style={raffleMascotStyle(siteConfig,layoutKey)}/>
+function RaffleMascot({src,siteConfig,layoutKey,className='',editor=null}) {
+  const values={...RAFFLE_MASCOT_DEFAULTS[layoutKey],...(editor?.layout?.[layoutKey]||siteConfig?.mascot_layout?.[layoutKey]||{})}
+  const style={'--raffle-mascot-size':`${values.size}px`,'--raffle-mascot-x':`${values.x}px`,'--raffle-mascot-y':`${values.y}px`}
+  const dragRef=useRef(null)
+
+  function beginMove(e){
+    if(!editor?.enabled)return
+    e.preventDefault();e.stopPropagation();editor.onSelect(layoutKey)
+    dragRef.current={mode:'move',pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,start:{...values}}
+    e.currentTarget.setPointerCapture?.(e.pointerId)
+  }
+  function beginResize(e){
+    if(!editor?.enabled)return
+    e.preventDefault();e.stopPropagation();editor.onSelect(layoutKey)
+    dragRef.current={mode:'resize',pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,start:{...values}}
+    e.currentTarget.parentElement?.setPointerCapture?.(e.pointerId)
+  }
+  function move(e){
+    const d=dragRef.current;if(!d||d.pointerId!==e.pointerId)return
+    const dx=e.clientX-d.startX,dy=e.clientY-d.startY
+    if(d.mode==='move')editor.onChange(layoutKey,{...d.start,x:Math.round(d.start.x+dx),y:Math.round(d.start.y+dy)})
+    else editor.onChange(layoutKey,{...d.start,size:Math.max(28,Math.min(360,Math.round(d.start.size+(dx+dy)/2)))})
+  }
+  function end(e){if(dragRef.current?.pointerId===e.pointerId)dragRef.current=null}
+
+  if(!editor?.enabled){
+    return <img className={`raffle-mascot ${className}`} src={src} alt="" aria-hidden="true" draggable="false" style={style}/>
+  }
+  return <span className={`raffle-mascot-edit-wrap ${className} ${editor.selected===layoutKey?'is-selected':''}`} style={style}
+    onPointerDown={beginMove} onPointerMove={move} onPointerUp={end} onPointerCancel={end}>
+    <img className="raffle-mascot raffle-mascot-edit-image" src={src} alt="" aria-hidden="true" draggable="false"/>
+    <span className="raffle-mascot-move-hint"><Move size={14}/></span>
+    <button type="button" className="raffle-mascot-resize-handle" aria-label="Cambiar tamaño" onPointerDown={beginResize}><Maximize2 size={14}/></button>
+  </span>
 }
 
 
@@ -32,7 +64,7 @@ function remaining(drawAt){
   return {total:ms,days:Math.floor(ms/86400000),hours:Math.floor(ms/3600000)%24,minutes:Math.floor(ms/60000)%60,seconds:Math.floor(ms/1000)%60}
 }
 
-export function RafflePage({ raffle, siteConfig, onClose }){
+export function RafflePage({ raffle, siteConfig, onClose, adminMode=false, onSiteConfigChanged }){
   const [numbers,setNumbers]=useState([])
   const [selected,setSelected]=useState([])
   const [left,setLeft]=useState(()=>remaining(raffle.draw_at))
@@ -42,6 +74,28 @@ export function RafflePage({ raffle, siteConfig, onClose }){
   const drawLock=useRef(false)
   const celebrationTimer=useRef(null)
   const logo=siteConfig.logo_url||'/logo-cucui.jpg'
+  const [designEdit,setDesignEdit]=useState(false)
+  const [designConfirm,setDesignConfirm]=useState(false)
+  const [selectedMascot,setSelectedMascot]=useState(null)
+  const [designSaving,setDesignSaving]=useState(false)
+  const [designMessage,setDesignMessage]=useState('')
+  const [layoutDraft,setLayoutDraft]=useState(()=>({...RAFFLE_MASCOT_DEFAULTS,...(siteConfig?.mascot_layout||{})}))
+  const layoutBeforeEdit=useRef(null)
+
+  useEffect(()=>{if(!designEdit)setLayoutDraft({...RAFFLE_MASCOT_DEFAULTS,...(siteConfig?.mascot_layout||{})})},[siteConfig?.mascot_layout,designEdit])
+
+  function changeMascot(key,next){setLayoutDraft(current=>({...current,[key]:next}))}
+  function activateDesignEdit(){layoutBeforeEdit.current=JSON.parse(JSON.stringify(layoutDraft));setSelectedMascot(null);setDesignMessage('');setDesignConfirm(false);setDesignEdit(true)}
+  function cancelDesignEdit(){if(layoutBeforeEdit.current)setLayoutDraft(layoutBeforeEdit.current);setSelectedMascot(null);setDesignEdit(false);setDesignMessage('')}
+  async function saveVisualLayout(){
+    if(!siteConfig?.id){setDesignMessage('No se encontró la configuración del sitio.');return}
+    setDesignSaving(true);setDesignMessage('')
+    const merged={...(siteConfig.mascot_layout||{}),...layoutDraft}
+    const {data,error}=await supabase.from('site_config').update({mascot_layout:merged}).eq('id',siteConfig.id).select('*').single()
+    if(error){setDesignMessage(error.message);setDesignSaving(false);return}
+    onSiteConfigChanged?.(data);setDesignEdit(false);setSelectedMascot(null);setDesignSaving(false);setDesignMessage('Diseño guardado.')
+  }
+  const mascotEditor=adminMode&&designEdit?{enabled:true,layout:layoutDraft,selected:selectedMascot,onSelect:setSelectedMascot,onChange:changeMascot}:null
 
   useEffect(()=>{
     let cancelled=false
@@ -166,12 +220,22 @@ export function RafflePage({ raffle, siteConfig, onClose }){
 
   return <div className="raffle-page raffle-festive-bg">
     <button className="raffle-close" onClick={onClose}><X/></button>
+    {adminMode&&<div className="raffle-admin-live-tools">
+      {!designEdit ? <button type="button" onClick={()=>setDesignConfirm(true)}><Pencil size={16}/> Editar diseño visual</button> : <>
+        <span><Move size={15}/> Arrastra los cuyos · usa la esquina para cambiar tamaño</span>
+        <button type="button" className="raffle-live-cancel" onClick={cancelDesignEdit}>Cancelar</button>
+        <button type="button" className="raffle-live-save" onClick={saveVisualLayout} disabled={designSaving}><Save size={16}/>{designSaving?'Guardando...':'Guardar diseño'}</button>
+      </>}
+    </div>}
+    {adminMode&&!raffle.is_public&&<div className="raffle-private-admin-badge"><LockKeyhole size={15}/><b>MODO ADMINISTRADOR</b><span>Esta rifa no es visible para clientes.</span></div>}
+    {designConfirm&&<div className="raffle-edit-confirm-backdrop" onMouseDown={()=>setDesignConfirm(false)}><div className="raffle-edit-confirm" onMouseDown={e=>e.stopPropagation()}><div className="raffle-edit-confirm-icon"><Move/></div><h3>¿Activar edición visual?</h3><p>Podrás mover y cambiar el tamaño de los cuyos directamente sobre la rifa. Nada se guardará hasta que pulses <b>Guardar diseño</b>.</p><div><button type="button" onClick={()=>setDesignConfirm(false)}>Cancelar</button><button type="button" onClick={activateDesignEdit}>Activar edición</button></div></div></div>}
+    {designMessage&&<div className="raffle-design-message">{designMessage}</div>}
     {celebrating&&raffle.confetti_enabled!==false&&<CelebrationFX/>}
 
     <main className="raffle-shell">
       <header className="raffle-header raffle-header-v7">
-        <RaffleMascot src="/mascotas/rifas/cuyo-asomado-izquierda.png" siteConfig={siteConfig} layoutKey="rafflePeekLeft" className="raffle-mascot-peek-left"/>
-        <RaffleMascot src="/mascotas/rifas/cuyo-asomado-derecha.png" siteConfig={siteConfig} layoutKey="rafflePeekRight" className="raffle-mascot-peek-right"/>
+        <RaffleMascot src="/mascotas/rifas/cuyo-asomado-izquierda.png" siteConfig={siteConfig} layoutKey="rafflePeekLeft" className="raffle-mascot-peek-left" editor={mascotEditor}/>
+        <RaffleMascot src="/mascotas/rifas/cuyo-asomado-derecha.png" siteConfig={siteConfig} layoutKey="rafflePeekRight" className="raffle-mascot-peek-right" editor={mascotEditor}/>
         <div className="raffle-header-ornament left"><Heart/><Sparkles/></div>
         <img className="raffle-logo" src={logo} alt="Ventitas Chiquitas Cucui"/>
         <div className="raffle-header-copy">
@@ -184,7 +248,7 @@ export function RafflePage({ raffle, siteConfig, onClose }){
       <div className="raffle-decoration-strip raffle-decoration-v7"><Star/><Heart/><Sparkles/><Ticket/><Sparkles/><Heart/><Star/></div>
 
       <section className="raffle-prize raffle-prize-v7">
-        <RaffleMascot src="/mascotas/rifas/cuyo-premio.png" siteConfig={siteConfig} layoutKey="rafflePrize" className="raffle-mascot-prize"/>
+        <RaffleMascot src="/mascotas/rifas/cuyo-premio.png" siteConfig={siteConfig} layoutKey="rafflePrize" className="raffle-mascot-prize" editor={mascotEditor}/>
         <div className="raffle-prize-photo-wrap">
           <span className="prize-badge"><Gift size={15}/> PREMIO DE LA RIFA</span>
           {raffle.prize_image_url&&<img src={raffle.prize_image_url} alt={raffle.prize_name}/>}
@@ -249,7 +313,7 @@ export function RafflePage({ raffle, siteConfig, onClose }){
         )}
 
         <section className="raffle-number-section raffle-number-section-v7">
-          <RaffleMascot src="/mascotas/rifas/cuyo-boleto.png" siteConfig={siteConfig} layoutKey="raffleTicket" className="raffle-mascot-ticket"/>
+          <RaffleMascot src="/mascotas/rifas/cuyo-boleto.png" siteConfig={siteConfig} layoutKey="raffleTicket" className="raffle-mascot-ticket" editor={mascotEditor}/>
           <div className="raffle-number-heading">
             <div className="raffle-section-title"><span><Ticket size={19}/></span><div><small>ELIGE TUS FAVORITOS</small><h2>Números de la rifa</h2></div></div>
             <div className="raffle-progress">
@@ -261,7 +325,7 @@ export function RafflePage({ raffle, siteConfig, onClose }){
           <div className="raffle-legend"><span><i className="available"/>Disponible</span><span><i className="chosen"/>Seleccionado</span><span><i className="sold"/>Ocupado</span></div>
           <p className="raffle-number-tip"><Ticket size={15}/> Toca uno o varios números disponibles para seleccionarlos.</p>
           <div className="raffle-number-grid raffle-public-grid-v11">{numbers.map(n=><button key={n.number} disabled={n.status==='SOLD'||(scheduled && left.total!==null && left.total<=0)} onClick={()=>toggle(n)} className={`${n.status==='SOLD'?'sold':''} ${selected.includes(n.number)?'chosen':''}`} aria-label={`Número ${pad(n.number,raffle.total_numbers)}${n.status==='SOLD'?', ocupado':selected.includes(n.number)?', seleccionado':', disponible'}`}><span>{pad(n.number,raffle.total_numbers)}</span></button>)}</div>
-          {selected.length>0&&<div className="raffle-selection-bar raffle-selection-with-mascot"><RaffleMascot src="/mascotas/rifas/cuyo-whatsapp.png" siteConfig={siteConfig} layoutKey="raffleWhatsapp" className="raffle-mascot-whatsapp"/><div><span>Números seleccionados</span><b>{selected.map(n=>pad(n,raffle.total_numbers)).join(', ')}</b><strong>{selected.length} × {money(raffle.price_per_number)} = {money(selected.length*Number(raffle.price_per_number||0))}</strong></div><button onClick={whatsapp}><FaWhatsapp/> Apartar por WhatsApp</button></div>}
+          {selected.length>0&&<div className="raffle-selection-bar raffle-selection-with-mascot"><RaffleMascot src="/mascotas/rifas/cuyo-whatsapp.png" siteConfig={siteConfig} layoutKey="raffleWhatsapp" className="raffle-mascot-whatsapp" editor={mascotEditor}/><div><span>Números seleccionados</span><b>{selected.map(n=>pad(n,raffle.total_numbers)).join(', ')}</b><strong>{selected.length} × {money(raffle.price_per_number)} = {money(selected.length*Number(raffle.price_per_number||0))}</strong></div><button onClick={whatsapp}><FaWhatsapp/> Apartar por WhatsApp</button></div>}
           <div className="raffle-community-note"><Heart size={22}/><div><b>Gracias por ser parte de esta rifa</b><small>Tu apartado se confirma después de verificar disponibilidad por WhatsApp.</small></div><Sparkles size={22}/></div>
         </section>
       </>}
@@ -293,7 +357,7 @@ export function RafflePage({ raffle, siteConfig, onClose }){
             <small>{spinning?'SORTEANDO':'GANADOR'}</small>
           </div>
         </div>
-        <div className="draw-mascots"><RaffleMascot src="/mascotas/rifas/cuyos-celebrando.png" siteConfig={siteConfig} layoutKey="raffleCelebrate" className="raffle-mascot-celebrate"/></div>
+        <div className="draw-mascots"><RaffleMascot src="/mascotas/rifas/cuyos-celebrando.png" siteConfig={siteConfig} layoutKey="raffleCelebrate" className="raffle-mascot-celebrate" editor={mascotEditor}/></div>
         <b className="raffle-inline-status">{spinning?'Girando la ruleta...':`Ganador: ${pad(winner,raffle.total_numbers)}`}</b>
         {final&&<small>Este es el resultado oficial de la rifa.</small>}
       </section>}
@@ -349,7 +413,7 @@ function loadCanvasImage(src){
   })
 }
 
-export function RaffleAdmin({ onClose, onChanged, onPreview }){
+export function RaffleAdmin({ onClose, onChanged }){
  const [raffle,setRaffle]=useState(null),[form,setForm]=useState(EMPTY),[numbers,setNumbers]=useState([]),[selected,setSelected]=useState([]),[siteConfig,setSiteConfig]=useState(null),[busy,setBusy]=useState(false),[exporting,setExporting]=useState(false),[error,setError]=useState(''),[jump,setJump]=useState('')
  useEffect(()=>{load()},[])
  async function load(){ const {data:site}=await supabase.from('site_config').select('*').order('id',{ascending:true}).limit(1).maybeSingle(); setSiteConfig(site||null); const {data,error}=await supabase.from('raffles').select('*').order('created_at',{ascending:false}).limit(1).maybeSingle(); if(error){setError(error.message);return} if(data){setRaffle(data);setForm({...data,draw_at:toLocalDateTimeInput(data.draw_at),schedule_enabled:Boolean(data.draw_at)}); const r=await supabase.from('raffle_numbers').select('*').eq('raffle_id',data.id).order('number');setNumbers(r.data||[])} }
@@ -498,13 +562,13 @@ export function RaffleAdmin({ onClose, onChanged, onPreview }){
  }
  function go(){const n=Number(jump);if(!n)return;document.getElementById(`admin-raffle-${n}`)?.scrollIntoView({behavior:'smooth',block:'center'})}
  return <div className="modal-backdrop raffle-admin-backdrop"><div className="raffle-admin-modal" onMouseDown={e=>e.stopPropagation()}><header><div><span className="raffle-kicker"><Ticket size={16}/> ADMINISTRACIÓN</span><h2>Rifas</h2><p>Configura el premio, los números, la publicación y la programación del sorteo.</p></div><button className="modal-close" onClick={onClose}><X/></button></header><form className="raffle-admin-form" onSubmit={save}><div className="raffle-admin-fields"><div className="raffle-admin-visibility">
-<label className="raffle-switch"><span>Rifa activa <small>Actívala para configurarla, probarla y usar la vista previa.</small></span><input type="checkbox" checked={Boolean(form.active)} onChange={e=>setForm(f=>({...f,active:e.target.checked,is_public:e.target.checked?f.is_public:false}))}/></label>
+<label className="raffle-switch"><span>Rifa activa <small>Actívala para configurarla y probar la rifa completa desde el botón privado de la portada.</small></span><input type="checkbox" checked={Boolean(form.active)} onChange={e=>setForm(f=>({...f,active:e.target.checked,is_public:e.target.checked?f.is_public:false}))}/></label>
 <label className="raffle-switch"><span>Mostrar en el catálogo <small>Si está apagado, los clientes no verán el botón de la rifa.</small></span><input type="checkbox" checked={Boolean(form.is_public)} disabled={!form.active} onChange={e=>setForm(f=>({...f,is_public:e.target.checked}))}/></label>
 <div className={`raffle-visibility-status ${form.active&&form.is_public?'is-public':'is-test'}`}>
   <b>{form.active&&form.is_public?'RIFA PUBLICADA':form.active?'MODO DE PRUEBA':'RIFA DESACTIVADA'}</b>
   <small>{form.active&&form.is_public?'Los clientes pueden ver esta rifa en el catálogo.':form.active?'La rifa funciona para administración, pero todavía no aparece a los clientes.':'Activa la rifa cuando quieras comenzar a configurarla y probarla.'}</small>
 </div>
-{raffle&&form.active&&<button type="button" className="raffle-preview-button" onClick={()=>onPreview?.({...raffle,...form,draw_at:form.schedule_enabled&&form.draw_at?new Date(form.draw_at).toISOString():null,is_public:Boolean(form.is_public)})}><Search size={17}/> Vista previa de la rifa</button>}
+
 </div><div className="raffle-admin-settings"><label className="raffle-switch"><span><Volume2 size={17}/> Sonido de la ruleta <small>Solo lo configura administración</small></span><input type="checkbox" checked={form.sound_enabled!==false} onChange={e=>setForm(f=>({...f,sound_enabled:e.target.checked}))}/></label><label className="raffle-switch"><span><PartyPopper size={17}/> Mostrar confeti</span><input type="checkbox" checked={form.confetti_enabled!==false} onChange={e=>setForm(f=>({...f,confetti_enabled:e.target.checked}))}/></label></div><label>Nombre del premio<input value={form.prize_name} onChange={e=>setForm(f=>({...f,prize_name:e.target.value}))} placeholder="Ej. Kit Hello Kitty"/></label><label>Descripción<textarea value={form.prize_description} onChange={e=>setForm(f=>({...f,prize_description:e.target.value}))} placeholder="Describe brevemente el premio"/></label><div className="raffle-two"><label>Cantidad de números<input type="number" min="1" max="1000" value={form.total_numbers} onChange={e=>setForm(f=>({...f,total_numbers:e.target.value}))}/></label><label>Precio por número<input type="number" min="0" step="0.01" value={form.price_per_number} onChange={e=>setForm(f=>({...f,price_per_number:e.target.value}))}/></label></div><div className="raffle-schedule-admin">
 <label className="raffle-switch raffle-schedule-switch"><span><CalendarDays size={17}/> Programar fecha del sorteo <small>Actívalo cuando quieras mostrar fecha, hora y contador.</small></span><input type="checkbox" checked={Boolean(form.schedule_enabled)} onChange={e=>setForm(f=>({...f,schedule_enabled:e.target.checked,draw_at:e.target.checked?f.draw_at:''}))}/></label>
 {form.schedule_enabled

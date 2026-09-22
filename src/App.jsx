@@ -1574,14 +1574,14 @@ function App() {
             <span>❀ Especial</span>
           </div>
 
-          <div className={`hero-actions ${activeRaffle?.is_public ? 'hero-actions-with-raffle' : ''}`}>
-            {activeRaffle?.is_public && (
+          <div className={`hero-actions ${(activeRaffle?.is_public || (adminMode && activeRaffle)) ? 'hero-actions-with-raffle' : ''}`}>
+            {(activeRaffle?.is_public || (adminMode && activeRaffle)) && (
               <button
-                className="raffle-hero-button"
+                className={`raffle-hero-button ${adminMode && !activeRaffle?.is_public ? 'raffle-hero-button-admin-only' : ''}`}
                 onClick={() => setRaffleOpen(true)}
               >
                 <Ticket size={21} />
-                <span>{activeRaffle.status === 'FINISHED' ? 'Ver ganador de la rifa' : '¡Rifa activa! Ver números'}</span>
+                <span>{adminMode && !activeRaffle?.is_public ? 'Rifa privada · probar como administrador' : activeRaffle.status === 'FINISHED' ? 'Ver ganador de la rifa' : '¡Rifa activa! Ver números'}</span>
                 <ChevronRight size={19} />
               </button>
             )}
@@ -2466,6 +2466,8 @@ function App() {
           siteConfig={siteConfig}
           onClose={() => setRaffleOpen(false)}
           onRefresh={loadActiveRaffle}
+          adminMode={adminMode}
+          onSiteConfigChanged={(nextConfig) => setSiteConfig((current) => ({...current, ...nextConfig, mascot_layout: {...DEFAULT_MASCOT_LAYOUT, ...(nextConfig?.mascot_layout || {})}}))}
         />
       )}
 
@@ -2474,11 +2476,6 @@ function App() {
           siteConfig={siteConfig}
           onClose={() => setRaffleAdminOpen(false)}
           onChanged={loadActiveRaffle}
-          onPreview={(raffleToPreview) => {
-            setActiveRaffle(raffleToPreview)
-            setRaffleAdminOpen(false)
-            setRaffleOpen(true)
-          }}
         />
       )}
 
