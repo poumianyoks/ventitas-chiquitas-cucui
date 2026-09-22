@@ -21,6 +21,7 @@ import {
   SlidersHorizontal,
   RotateCcw,
   Upload,
+  Ticket,
 } from 'lucide-react'
 
 import {
@@ -30,6 +31,7 @@ import {
 } from 'react-icons/fa'
 
 import { supabase } from './lib/supabase'
+import { RafflePage, RaffleAdmin } from './Raffle'
 import './App.css'
 
 const MAX_PRODUCT_IMAGES = 15
@@ -61,6 +63,12 @@ const DEFAULT_MASCOT_LAYOUT = {
   instagram: { size: 39, x: 0, y: 0 },
   whatsappFooter: { size: 39, x: 0, y: 0 },
   group: { size: 39, x: 0, y: 0 },
+  rafflePeekLeft: { size: 105, x: 0, y: 0 },
+  rafflePeekRight: { size: 105, x: 0, y: 0 },
+  raffleTicket: { size: 115, x: 0, y: 0 },
+  rafflePrize: { size: 105, x: 0, y: 0 },
+  raffleWhatsapp: { size: 92, x: 0, y: 0 },
+  raffleCelebrate: { size: 175, x: 0, y: 0 },
 }
 
 const MASCOT_DESIGN_ITEMS = [
@@ -74,6 +82,12 @@ const MASCOT_DESIGN_ITEMS = [
   { key: 'instagram', label: 'Instagram', src: '/mascotas/botones/naranja-instagram.png' },
   { key: 'whatsappFooter', label: 'WhatsApp del footer', src: '/mascotas/botones/blanquita-whatsapp-footer.png' },
   { key: 'group', label: 'Grupo de WhatsApp', src: '/mascotas/botones/naranja-grupo.png' },
+  { key: 'rafflePeekLeft', label: 'Rifa · Cuyo asomado izquierdo', src: '/mascotas/rifas/cuyo-asomado-izquierda.png' },
+  { key: 'rafflePeekRight', label: 'Rifa · Cuyo asomado derecho', src: '/mascotas/rifas/cuyo-asomado-derecha.png' },
+  { key: 'raffleTicket', label: 'Rifa · Cuyo con boleto', src: '/mascotas/rifas/cuyo-boleto.png' },
+  { key: 'rafflePrize', label: 'Rifa · Cuyo del premio', src: '/mascotas/rifas/cuyo-premio.png' },
+  { key: 'raffleWhatsapp', label: 'Rifa · Cuyo de WhatsApp', src: '/mascotas/rifas/cuyo-whatsapp.png' },
+  { key: 'raffleCelebrate', label: 'Rifa · Cuyos celebrando', src: '/mascotas/rifas/cuyos-celebrando.png' },
 ]
 
 const EMPTY_PRODUCT = {
@@ -86,8 +100,26 @@ const EMPTY_PRODUCT = {
   category: 'Cosméticos',
   label: '',
   available: true,
+  colors_enabled: false,
+  color_options: [],
 }
 
+const COLOR_HINTS = [
+  ['rosa pastel','#f6b8cf'],['rosa fuerte','#e83e8c'],['rosa mexicano','#e4007c'],['rosa','#ef7fa8'],
+  ['rojo vino','#7d1231'],['vino','#7d1231'],['rojo','#d9364f'],['naranja','#f28a3b'],['amarillo','#f4cf4e'],
+  ['verde menta','#9fd9c1'],['verde','#55a96b'],['azul cielo','#8ecdf3'],['azul marino','#244b7a'],['azul','#5798df'],
+  ['morado','#8d63b8'],['lila','#c4a5df'],['violeta','#8d63b8'],['blanco','#ffffff'],['negro','#222222'],
+  ['gris','#9ca3af'],['beige','#e7d2b5'],['cafe','#8b5e3c'],['café','#8b5e3c'],['dorado','#d8ad45'],['plateado','#b9c0c8'],
+  ['transparente','#f7f7f7']
+]
+function inferColorHex(name){
+  const n=String(name||'').trim().toLowerCase()
+  return COLOR_HINTS.find(([label])=>n.includes(label))?.[1] || '#d8b4c4'
+}
+function normalizeColorOptions(value){
+  if(!Array.isArray(value))return []
+  return value.map((item,i)=> typeof item==='string' ? {id:`c-${i}-${item}`,name:item,hex:inferColorHex(item)} : {id:item.id||`c-${i}-${item.name||'color'}`,name:String(item.name||'').trim(),hex:item.hex||inferColorHex(item.name)}).filter(x=>x.name)
+}
 
 function CategoryIcon({ category, size = 16 }) {
   const normalized = String(category || '').toLowerCase()
@@ -173,6 +205,9 @@ function App() {
 
   const [modalQuantity, setModalQuantity] =
     useState(1)
+  const [modalColorQuantities, setModalColorQuantities] = useState({})
+  const [colorDraft, setColorDraft] = useState('')
+  const [colorHexDraft, setColorHexDraft] = useState('#ef7fa8')
   const [galleryIndex, setGalleryIndex] =
     useState(0)
   const touchStartX = useRef(null)
@@ -226,6 +261,10 @@ function App() {
     designManagerOpen,
     setDesignManagerOpen,
   ] = useState(false)
+
+  const [activeRaffle, setActiveRaffle] = useState(null)
+  const [raffleOpen, setRaffleOpen] = useState(false)
+  const [raffleAdminOpen, setRaffleAdminOpen] = useState(false)
   const [designDraft, setDesignDraft] = useState({
     logo_url: null,
     mascot_layout: DEFAULT_MASCOT_LAYOUT,
@@ -303,6 +342,8 @@ function App() {
       setProductEditorOpen(false)
       setCategoryManagerOpen(false)
       setDesignManagerOpen(false)
+      setRaffleOpen(false)
+      setRaffleAdminOpen(false)
       setConfirmDelete(null)
     }
 
@@ -372,6 +413,7 @@ function App() {
         loadProducts(),
         loadCategories(),
         loadSiteConfig(),
+        loadActiveRaffle(),
       ])
     } catch (error) {
       console.error(error)
@@ -442,6 +484,26 @@ function App() {
         },
       })
     }
+  }
+
+  async function loadActiveRaffle() {
+    // IMPORTANTE: aquí solo leemos la rifa. No ejecutamos el sorteo desde App.
+    // La presentación pública controla el momento del sorteo para no interrumpir la ruleta.
+    const { data, error } = await supabase
+      .from('raffles')
+      .select('*')
+      .eq('active', true)
+      .in('status', ['ACTIVE', 'DRAWING', 'FINISHED'])
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (error) {
+      console.error('No se pudo cargar la rifa:', error)
+      return
+    }
+
+    setActiveRaffle(data || null)
   }
 
   const visibleProducts = useMemo(() => {
@@ -542,11 +604,13 @@ function App() {
   function openProduct(product) {
     setSelectedProduct(product)
     setModalQuantity(1)
+    setModalColorQuantities({})
     setGalleryIndex(0)
   }
 
   function closeProduct() {
     setSelectedProduct(null)
+    setModalColorQuantities({})
     setGalleryIndex(0)
   }
 
@@ -596,102 +660,59 @@ function App() {
     }
   }
 
-  function addToCart(
-    product,
-    quantity = 1,
-  ) {
-    if (!product.available) return
+  function cartKey(productId,colorName=''){
+    return `${productId}::${colorName||'__default__'}`
+  }
 
+  function addToCart(product, quantity = 1, color = null) {
+    if (!product.available || quantity<=0) return
+    const key=cartKey(product.id,color?.name)
     setCart((current) => {
-      const existing = current.find(
-        (item) => item.id === product.id,
-      )
-
-      if (existing) {
-        return current.map((item) =>
-          item.id === product.id
-            ? {
-                ...item,
-                quantity:
-                  item.quantity + quantity,
-              }
-            : item,
-        )
-      }
-
-      return [
-        ...current,
-        {
-          ...product,
-          quantity,
-        },
-      ]
+      const existing = current.find((item) => item.cart_key === key || (!item.cart_key && !color && item.id===product.id))
+      if (existing) return current.map((item) => (item.cart_key===key || (!item.cart_key && !color && item.id===product.id)) ? {...item,cart_key:key,quantity:item.quantity+quantity,color:color||item.color||null} : item)
+      return [...current,{...product,cart_key:key,quantity,color:color||null}]
     })
+  }
 
+  function addModalSelectionToCart(){
+    if(!selectedProduct)return
+    const colors=normalizeColorOptions(selectedProduct.color_options)
+    if(selectedProduct.colors_enabled && colors.length){
+      const picked=colors.map(c=>({color:c,quantity:Number(modalColorQuantities[c.id]||0)})).filter(x=>x.quantity>0)
+      if(!picked.length){alert('Elige al menos un color y una cantidad.');return}
+      picked.forEach(({color,quantity})=>addToCart(selectedProduct,quantity,color))
+    }else{
+      addToCart(selectedProduct,modalQuantity)
+    }
     closeProduct()
     setCartOpen(true)
   }
 
-  function changeCartQuantity(id, amount) {
-    setCart((current) =>
-      current
-        .map((item) => {
-          if (item.id !== id) return item
-
-          return {
-            ...item,
-            quantity:
-              item.quantity + amount,
-          }
-        })
-        .filter(
-          (item) => item.quantity > 0,
-        ),
-    )
+  function changeColorQuantity(id,amount){
+    setModalColorQuantities(current=>({...current,[id]:Math.max(0,Number(current[id]||0)+amount)}))
   }
 
-  function removeFromCart(id) {
-    setCart((current) =>
-      current.filter(
-        (item) => item.id !== id,
-      ),
-    )
+  function changeCartQuantity(key, amount) {
+    setCart((current) => current.map((item) => {
+      const itemKey=item.cart_key||cartKey(item.id,item.color?.name)
+      if(itemKey!==key)return item
+      return {...item,cart_key:itemKey,quantity:item.quantity+amount}
+    }).filter((item)=>item.quantity>0))
+  }
+
+  function removeFromCart(key) {
+    setCart((current) => current.filter((item) => (item.cart_key||cartKey(item.id,item.color?.name))!==key))
   }
 
   function sendOrder() {
-    if (cart.length === 0) {
-      alert('Tu carrito está vacío.')
-      return
-    }
-
-    const productLines = cart
-      .map((item) => {
-        const subtotal =
-          Number(item.price) *
-          item.quantity
-
-        return (
-          `${item.quantity} x ${item.name}\n` +
-          `Precio unitario: $${Number(item.price)} MXN\n` +
-          `Subtotal: $${subtotal} MXN`
-        )
-      })
-      .join('\n\n')
-
-    const message =
-      `Hola, Ventitas Chiquitas Cucui.\n\n` +
-      `Quiero realizar el siguiente pedido:\n\n` +
-      `${productLines}\n\n` +
-      `TOTAL: $${cartTotal} MXN\n\n` +
-      `¿Me podrían confirmar disponibilidad?`
-
-    window.open(
-      `https://wa.me/${siteConfig.whatsapp_number}?text=${encodeURIComponent(
-        message,
-      )}`,
-      '_blank',
-      'noopener,noreferrer',
-    )
+    if (cart.length === 0) { alert('Tu carrito está vacío.'); return }
+    const productLines = cart.map((item) => {
+      const subtotal=Number(item.price)*item.quantity
+      const colorLine=item.color?.name ? `Color: ${item.color.name}\n` : ''
+      return `${item.quantity} x ${item.name}\n${colorLine}Precio unitario: $${Number(item.price)} MXN\nSubtotal: $${subtotal} MXN`
+    }).join('\n\n')
+    const message=`Hola, Ventitas Chiquitas Cucui.\n\nQuiero realizar el siguiente pedido:\n\n${productLines}\n\nTOTAL: $${cartTotal} MXN\n\n¿Me podrían confirmar disponibilidad?`
+    window.open(`https://wa.me/${siteConfig.whatsapp_number}?text=${encodeURIComponent(message)}`,'_blank','noopener,noreferrer')
   }
 
   async function tryAdminLogin(event) {
@@ -1016,6 +1037,8 @@ function App() {
       category: getFirstRealCategory(),
     })
 
+    setColorDraft('')
+    setColorHexDraft('#ef7fa8')
     setProductEditorOpen(true)
   }
 
@@ -1042,7 +1065,11 @@ function App() {
       label: product.label || '',
       available:
         product.available ?? true,
+      colors_enabled: Boolean(product.colors_enabled),
+      color_options: normalizeColorOptions(product.color_options),
     })
+    setColorDraft('')
+    setColorHexDraft('#ef7fa8')
 
     setProductEditorOpen(true)
   }
@@ -1062,6 +1089,26 @@ function App() {
           ? checked
           : value,
     }))
+  }
+
+  function addColorOption(){
+    const name=colorDraft.trim()
+    if(!name)return
+    setProductForm(current=>{
+      const existing=normalizeColorOptions(current.color_options)
+      if(existing.some(c=>c.name.toLowerCase()===name.toLowerCase()))return current
+      return {...current,color_options:[...existing,{id:`c-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,name,hex:colorHexDraft||inferColorHex(name)}]}
+    })
+    setColorDraft('')
+    setColorHexDraft('#ef7fa8')
+  }
+
+  function removeColorOption(id){
+    setProductForm(current=>({...current,color_options:normalizeColorOptions(current.color_options).filter(c=>c.id!==id)}))
+  }
+
+  function updateColorOption(id,patch){
+    setProductForm(current=>({...current,color_options:normalizeColorOptions(current.color_options).map(c=>c.id===id?{...c,...patch}:c)}))
   }
 
   async function optimizeImage(file) {
@@ -1360,6 +1407,8 @@ function App() {
       available: Boolean(
         productForm.available,
       ),
+      colors_enabled: Boolean(productForm.colors_enabled),
+      color_options: productForm.colors_enabled ? normalizeColorOptions(productForm.color_options) : [],
     }
 
     if (
@@ -1525,7 +1574,18 @@ function App() {
             <span>❀ Especial</span>
           </div>
 
-          <div className="hero-actions">
+          <div className={`hero-actions ${activeRaffle ? 'hero-actions-with-raffle' : ''}`}>
+            {activeRaffle && (
+              <button
+                className="raffle-hero-button"
+                onClick={() => setRaffleOpen(true)}
+              >
+                <Ticket size={21} />
+                <span>{activeRaffle.status === 'FINISHED' ? 'Ver ganador de la rifa' : '¡Rifa activa! Ver números'}</span>
+                <ChevronRight size={19} />
+              </button>
+            )}
+
             <button
               className="primary-button"
               onClick={scrollToCatalog}
@@ -1703,6 +1763,14 @@ function App() {
               >
                 <SlidersHorizontal size={18} />
                 Diseño
+              </button>
+
+              <button
+                className="admin-action-raffles"
+                onClick={() => setRaffleAdminOpen(true)}
+              >
+                <Ticket size={18} />
+                Rifas
               </button>
 
               <button
@@ -2117,59 +2185,27 @@ function App() {
 
               {selectedProduct.available ? (
                 <>
-                  <div className="quantity-row">
-                    <span>Cantidad</span>
-
-                    <div className="quantity-control">
-                      <button
-                        onClick={() =>
-                          setModalQuantity(
-                            (current) =>
-                              Math.max(
-                                1,
-                                current - 1,
-                              ),
-                          )
-                        }
-                      >
-                        <Minus size={18} />
-                      </button>
-
-                      <strong>
-                        {modalQuantity}
-                      </strong>
-
-                      <button
-                        onClick={() =>
-                          setModalQuantity(
-                            (current) =>
-                              current + 1,
-                          )
-                        }
-                      >
-                        <Plus size={18} />
-                      </button>
+                  {selectedProduct.colors_enabled && normalizeColorOptions(selectedProduct.color_options).length ? (
+                    <div className="product-color-picker">
+                      <div className="product-color-picker-head"><span>Elige color y cantidad</span><small>Puedes pedir varios colores del mismo producto</small></div>
+                      <div className="product-color-list">
+                        {normalizeColorOptions(selectedProduct.color_options).map(color=><div className={`product-color-row ${Number(modalColorQuantities[color.id]||0)>0?'selected':''}`} key={color.id}>
+                          <div className="product-color-name"><i style={{background:color.hex}}/><span>{color.name}</span></div>
+                          <div className="quantity-control color-quantity">
+                            <button type="button" onClick={()=>changeColorQuantity(color.id,-1)}><Minus size={17}/></button>
+                            <strong>{Number(modalColorQuantities[color.id]||0)}</strong>
+                            <button type="button" onClick={()=>changeColorQuantity(color.id,1)}><Plus size={17}/></button>
+                          </div>
+                        </div>)}
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="quantity-row"><span>Cantidad</span><div className="quantity-control"><button type="button" onClick={()=>setModalQuantity(current=>Math.max(1,current-1))}><Minus size={18}/></button><strong>{modalQuantity}</strong><button type="button" onClick={()=>setModalQuantity(current=>current+1)}><Plus size={18}/></button></div></div>
+                  )}
 
-                  <button
-                    className="add-cart-button"
-                    onClick={() =>
-                      addToCart(
-                        selectedProduct,
-                        modalQuantity,
-                      )
-                    }
-                  >
-                    <ButtonMascot
-                      src="/mascotas/botones/naranja-agregar-carrito.png"
-                      className="mascot-add-cart"
-                      layout={getMascotLayout('addCart')}
-                    />
-                    <ShoppingBag
-                      size={20}
-                    />
-                    Agregar al carrito
+                  <button className="add-cart-button" onClick={addModalSelectionToCart}>
+                    <ButtonMascot src="/mascotas/botones/naranja-agregar-carrito.png" className="mascot-add-cart" layout={getMascotLayout('addCart')}/>
+                    <ShoppingBag size={20}/> Agregar al carrito
                   </button>
                 </>
               ) : (
@@ -2234,7 +2270,7 @@ function App() {
                   {cart.map((item) => (
                     <div
                       className="cart-item"
-                      key={item.id}
+                      key={item.cart_key || cartKey(item.id,item.color?.name)}
                     >
                       <img
                         src={getProductImage(
@@ -2249,6 +2285,7 @@ function App() {
                         <strong>
                           {item.name}
                         </strong>
+                        {item.color?.name&&<span className="cart-color-tag"><i style={{background:item.color.hex}}/>{item.color.name}</span>}
 
                         <span>
                           $
@@ -2262,7 +2299,7 @@ function App() {
                           <button
                             onClick={() =>
                               changeCartQuantity(
-                                item.id,
+                                item.cart_key || cartKey(item.id,item.color?.name),
                                 -1,
                               )
                             }
@@ -2279,7 +2316,7 @@ function App() {
                           <button
                             onClick={() =>
                               changeCartQuantity(
-                                item.id,
+                                item.cart_key || cartKey(item.id,item.color?.name),
                                 1,
                               )
                             }
@@ -2303,7 +2340,7 @@ function App() {
                         <button
                           onClick={() =>
                             removeFromCart(
-                              item.id,
+                              item.cart_key || cartKey(item.id,item.color?.name),
                             )
                           }
                           aria-label="Eliminar del carrito"
@@ -2382,12 +2419,6 @@ function App() {
               Acceso de administrador
             </h2>
 
-            <p>
-              Inicia sesión con el correo y
-              contraseña que creaste en
-              Supabase.
-            </p>
-
             <input
               type="email"
               value={adminEmail}
@@ -2427,6 +2458,23 @@ function App() {
             </button>
           </form>
         </div>
+      )}
+
+      {raffleOpen && activeRaffle && (
+        <RafflePage
+          raffle={activeRaffle}
+          siteConfig={siteConfig}
+          onClose={() => setRaffleOpen(false)}
+          onRefresh={loadActiveRaffle}
+        />
+      )}
+
+      {raffleAdminOpen && adminMode && (
+        <RaffleAdmin
+          siteConfig={siteConfig}
+          onClose={() => setRaffleAdminOpen(false)}
+          onChanged={loadActiveRaffle}
+        />
       )}
 
       {designManagerOpen && adminMode && (
@@ -2545,7 +2593,7 @@ function App() {
                           <input
                             type="range"
                             min="20"
-                            max="90"
+                            max="220"
                             step="1"
                             value={values.size}
                             onChange={(event) =>
@@ -2559,8 +2607,8 @@ function App() {
                           <span>Posición X</span>
                           <input
                             type="range"
-                            min="-60"
-                            max="60"
+                            min="-160"
+                            max="160"
                             step="1"
                             value={values.x}
                             onChange={(event) =>
@@ -2574,8 +2622,8 @@ function App() {
                           <span>Posición Y</span>
                           <input
                             type="range"
-                            min="-60"
-                            max="60"
+                            min="-160"
+                            max="160"
                             step="1"
                             value={values.y}
                             onChange={(event) =>
@@ -2998,6 +3046,28 @@ function App() {
                       required
                     />
                   </label>
+
+                  <div className="product-colors-admin wide-field">
+                    <label className="availability-switch color-enable-switch">
+                      <input type="checkbox" name="colors_enabled" checked={Boolean(productForm.colors_enabled)} onChange={handleProductFormChange}/>
+                      <span>Este producto tiene colores para elegir</span>
+                    </label>
+                    {productForm.colors_enabled&&<>
+                      <p className="color-admin-help">Escribe el nombre tal como quieres que lo vea el cliente. Detectamos un tono aproximado y puedes corregirlo con el selector.</p>
+                      <div className="color-add-row">
+                        <input value={colorDraft} onChange={e=>{const name=e.target.value;setColorDraft(name);setColorHexDraft(inferColorHex(name))}} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();addColorOption()}}} placeholder="Ej. Rosa pastel, Rosa fuerte, Azul cielo..."/>
+                        <input className="color-native-picker" type="color" value={colorHexDraft} onChange={e=>setColorHexDraft(e.target.value)} title="Tono visual"/>
+                        <button type="button" onClick={addColorOption}><Plus size={17}/>Agregar</button>
+                      </div>
+                      <div className="color-admin-tags">
+                        {normalizeColorOptions(productForm.color_options).map(color=><div className="color-admin-tag" key={color.id}>
+                          <input type="color" value={color.hex} onChange={e=>updateColorOption(color.id,{hex:e.target.value})}/>
+                          <input value={color.name} onChange={e=>updateColorOption(color.id,{name:e.target.value})}/>
+                          <button type="button" onClick={()=>removeColorOption(color.id)} aria-label={`Quitar ${color.name}`}><X size={15}/></button>
+                        </div>)}
+                      </div>
+                    </>}
+                  </div>
 
                   <label className="availability-switch wide-field">
                     <input
