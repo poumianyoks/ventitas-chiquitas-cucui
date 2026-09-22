@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { X, Clock3, Save, Upload, RotateCcw, Search, LockKeyhole, Check, Gift, CalendarDays, Users, PartyPopper, Volume2, Heart, Sparkles, Ticket, Trophy, Star, BadgeDollarSign, Download, ImageDown, Move, Maximize2, Pencil } from 'lucide-react'
+import { X, Clock3, Save, Upload, RotateCcw, Search, LockKeyhole, Check, Gift, CalendarDays, Users, PartyPopper, Volume2, Heart, Sparkles, Ticket, Trophy, Star, BadgeDollarSign, Download, ImageDown, Move, Maximize2, Pencil, Plus, History } from 'lucide-react'
 import { FaWhatsapp } from 'react-icons/fa'
 import { supabase } from './lib/supabase'
 
-const EMPTY = { prize_name:'', prize_description:'', prize_image_url:'', total_numbers:100, price_per_number:20, draw_at:'', schedule_enabled:false, active:false, is_public:false, status:'DRAFT', sound_enabled:true, confetti_enabled:true }
+const EMPTY = { raffle_number:'', prize_name:'', prize_description:'', prize_image_url:'', total_numbers:100, price_per_number:20, draw_at:'', schedule_enabled:false, active:false, is_public:false, status:'DRAFT', sound_enabled:true, confetti_enabled:true }
 const pad = (n, total=100) => String(n).padStart(String(Math.max(total, 99)).length, '0')
 const money = n => new Intl.NumberFormat('es-MX',{style:'currency',currency:'MXN',maximumFractionDigits:2}).format(Number(n||0))
 
@@ -68,7 +68,7 @@ export function RafflePage({ raffle, siteConfig, onClose, adminMode=false, onSit
   const [numbers,setNumbers]=useState([])
   const [selected,setSelected]=useState([])
   const [left,setLeft]=useState(()=>remaining(raffle.draw_at))
-  const [stage,setStage]=useState(raffle.status==='FINISHED' && raffle.winner_number ? 'final' : 'active')
+  const [stage,setStage]=useState(raffle.winner_number!=null ? 'final' : 'active')
   const [winner,setWinner]=useState(raffle.winner_number ? Number(raffle.winner_number) : null)
   const [drawError,setDrawError]=useState('')
   const drawLock=useRef(false)
@@ -414,9 +414,22 @@ function loadCanvasImage(src){
 }
 
 export function RaffleAdmin({ onClose, onChanged }){
- const [raffle,setRaffle]=useState(null),[form,setForm]=useState(EMPTY),[numbers,setNumbers]=useState([]),[selected,setSelected]=useState([]),[siteConfig,setSiteConfig]=useState(null),[busy,setBusy]=useState(false),[exporting,setExporting]=useState(false),[error,setError]=useState(''),[jump,setJump]=useState('')
+ const [raffle,setRaffle]=useState(null),[form,setForm]=useState(EMPTY),[numbers,setNumbers]=useState([]),[selected,setSelected]=useState([]),[siteConfig,setSiteConfig]=useState(null),[busy,setBusy]=useState(false),[exporting,setExporting]=useState(false),[error,setError]=useState(''),[jump,setJump]=useState(''),[history,setHistory]=useState([])
  useEffect(()=>{load()},[])
- async function load(){ const {data:site}=await supabase.from('site_config').select('*').order('id',{ascending:true}).limit(1).maybeSingle(); setSiteConfig(site||null); const {data,error}=await supabase.from('raffles').select('*').order('created_at',{ascending:false}).limit(1).maybeSingle(); if(error){setError(error.message);return} if(data){setRaffle(data);setForm({...data,draw_at:toLocalDateTimeInput(data.draw_at),schedule_enabled:Boolean(data.draw_at)}); const r=await supabase.from('raffle_numbers').select('*').eq('raffle_id',data.id).order('number');setNumbers(r.data||[])} }
+ async function load(targetId=null){
+   const {data:site}=await supabase.from('site_config').select('*').order('id',{ascending:true}).limit(1).maybeSingle(); setSiteConfig(site||null)
+   const {data:list,error:listError}=await supabase.from('raffles').select('*').order('raffle_number',{ascending:false}).order('created_at',{ascending:false})
+   if(listError){setError(listError.message);return}
+   setHistory(list||[])
+   const data=targetId ? (list||[]).find(item=>item.id===targetId) : (list||[])[0]
+   if(data){
+     setRaffle(data);setForm({...data,draw_at:toLocalDateTimeInput(data.draw_at),schedule_enabled:Boolean(data.draw_at)});setSelected([])
+     const r=await supabase.from('raffle_numbers').select('*').eq('raffle_id',data.id).order('number');setNumbers(r.data||[])
+   }else{setRaffle(null);setForm({...EMPTY});setNumbers([]);setSelected([])}
+ }
+ function createNewRaffle(){
+   setRaffle(null);setForm({...EMPTY});setNumbers([]);setSelected([]);setJump('');setError('')
+ }
  async function upload(file){ if(!file)return; setBusy(true);try{const ext=(file.name.split('.').pop()||'jpg').toLowerCase();const path=`raffles/${crypto.randomUUID()}.${ext}`;const {error}=await supabase.storage.from('productos').upload(path,file,{upsert:false,cacheControl:'31536000'});if(error)throw error;const {data}=supabase.storage.from('productos').getPublicUrl(path);setForm(f=>({...f,prize_image_url:data.publicUrl}))}catch(e){setError(e.message)}finally{setBusy(false)} }
  async function save(e){
   e.preventDefault()
@@ -434,11 +447,17 @@ export function RaffleAdmin({ onClose, onChanged }){
       draw_at:form.schedule_enabled&&form.draw_at ? new Date(form.draw_at).toISOString() : null,
       active:Boolean(form.active),
       is_public:Boolean(form.active && form.is_public),
-      status:form.active?'ACTIVE':'DRAFT',
-      winner_number:null,
-      completed_at:null,
+      status:raffle?.winner_number!=null?'FINISHED':(form.active?'ACTIVE':'DRAFT'),
       sound_enabled:Boolean(form.sound_enabled),
       confetti_enabled:Boolean(form.confetti_enabled)
+    }
+    if(form.raffle_number!=='' && form.raffle_number!=null)payload.raffle_number=Math.max(1,Number(form.raffle_number))
+    // Solo puede haber una rifa activa/publicada a la vez. Las anteriores quedan en el historial.
+    if(payload.active){
+      let q=supabase.from('raffles').update({active:false,is_public:false})
+      if(raffle?.id)q=q.neq('id',raffle.id)
+      const off=await q.eq('active',true)
+      if(off.error)throw off.error
     }
     let data
     if(raffle){
@@ -452,12 +471,12 @@ export function RaffleAdmin({ onClose, onChanged }){
     }
     const rpc=await supabase.rpc('sync_raffle_numbers',{p_raffle_id:data.id,p_total_numbers:payload.total_numbers})
     if(rpc.error)throw rpc.error
-    await load()
+    await load(data.id)
     await onChanged?.()
   }catch(e){setError(e.message)}
   finally{setBusy(false)}
  }
- async function mark(status){if(!selected.length)return;setBusy(true);const {error}=await supabase.from('raffle_numbers').update({status,reserved_at:status==='SOLD'?new Date().toISOString():null}).eq('raffle_id',raffle.id).in('number',selected);if(error)setError(error.message);else{setSelected([]);await load()}setBusy(false)}
+ async function mark(status){if(!selected.length)return;setBusy(true);const {error}=await supabase.from('raffle_numbers').update({status,reserved_at:status==='SOLD'?new Date().toISOString():null}).eq('raffle_id',raffle.id).in('number',selected);if(error)setError(error.message);else{setSelected([]);await load(raffle.id)}setBusy(false)}
 
  function toggleAdminNumber(number){
    setSelected(s=>s.includes(number)?s.filter(x=>x!==number):[...s,number])
@@ -561,7 +580,13 @@ export function RaffleAdmin({ onClose, onChanged }){
    finally{setExporting(false)}
  }
  function go(){const n=Number(jump);if(!n)return;document.getElementById(`admin-raffle-${n}`)?.scrollIntoView({behavior:'smooth',block:'center'})}
- return <div className="modal-backdrop raffle-admin-backdrop"><div className="raffle-admin-modal" onMouseDown={e=>e.stopPropagation()}><header><div><span className="raffle-kicker"><Ticket size={16}/> ADMINISTRACIÓN</span><h2>Rifas</h2><p>Configura el premio, los números, la publicación y la programación del sorteo.</p></div><button className="modal-close" onClick={onClose}><X/></button></header><form className="raffle-admin-form" onSubmit={save}><div className="raffle-admin-fields"><div className="raffle-admin-visibility">
+ return <div className="modal-backdrop raffle-admin-backdrop"><div className="raffle-admin-modal" onMouseDown={e=>e.stopPropagation()}><header><div><span className="raffle-kicker"><Ticket size={16}/> ADMINISTRACIÓN</span><h2>Rifas</h2><p>Configura el premio, los números, la publicación y la programación del sorteo.</p></div><button className="modal-close" onClick={onClose}><X/></button></header>
+<section className="raffle-admin-history">
+  <div className="raffle-admin-history-head"><div><span><History size={16}/> HISTORIAL DE RIFAS</span><b>{raffle ? `Editando Rifa #${raffle.raffle_number||'—'}` : 'Creando nueva rifa'}</b></div><button type="button" onClick={createNewRaffle}><Plus size={17}/> Crear nueva rifa</button></div>
+  {history.length>0&&<div className="raffle-history-list">{history.map(item=><button type="button" key={item.id} className={raffle?.id===item.id?'is-current':''} onClick={()=>load(item.id)}><strong>Rifa #{item.raffle_number||'—'}</strong><span>{item.prize_name||'Sin nombre'}</span><small>{item.winner_number!=null?`Finalizada · Ganador ${pad(item.winner_number,item.total_numbers)}`:item.active?(item.is_public?'Publicada':'Modo de prueba'):'Guardada'}</small></button>)}</div>}
+  <div className="raffle-admin-idbox"><span>ID interno de Supabase</span><code>{raffle?.id||'Se generará automáticamente al guardar la nueva rifa'}</code><small>Solo se muestra en administración. No se enseña a los clientes y no se modifica para evitar romper boletos o resultados.</small></div>
+</section>
+<form className="raffle-admin-form" onSubmit={save}><div className="raffle-admin-fields"><div className="raffle-admin-visibility">
 <label className="raffle-switch"><span>Rifa activa <small>Actívala para configurarla y probar la rifa completa desde el botón privado de la portada.</small></span><input type="checkbox" checked={Boolean(form.active)} onChange={e=>setForm(f=>({...f,active:e.target.checked,is_public:e.target.checked?f.is_public:false}))}/></label>
 <label className="raffle-switch"><span>Mostrar en el catálogo <small>Si está apagado, los clientes no verán el botón de la rifa.</small></span><input type="checkbox" checked={Boolean(form.is_public)} disabled={!form.active} onChange={e=>setForm(f=>({...f,is_public:e.target.checked}))}/></label>
 <div className={`raffle-visibility-status ${form.active&&form.is_public?'is-public':'is-test'}`}>
@@ -569,7 +594,7 @@ export function RaffleAdmin({ onClose, onChanged }){
   <small>{form.active&&form.is_public?'Los clientes pueden ver esta rifa en el catálogo.':form.active?'La rifa funciona para administración, pero todavía no aparece a los clientes.':'Activa la rifa cuando quieras comenzar a configurarla y probarla.'}</small>
 </div>
 
-</div><div className="raffle-admin-settings"><label className="raffle-switch"><span><Volume2 size={17}/> Sonido de la ruleta <small>Solo lo configura administración</small></span><input type="checkbox" checked={form.sound_enabled!==false} onChange={e=>setForm(f=>({...f,sound_enabled:e.target.checked}))}/></label><label className="raffle-switch"><span><PartyPopper size={17}/> Mostrar confeti</span><input type="checkbox" checked={form.confetti_enabled!==false} onChange={e=>setForm(f=>({...f,confetti_enabled:e.target.checked}))}/></label></div><label>Nombre del premio<input value={form.prize_name} onChange={e=>setForm(f=>({...f,prize_name:e.target.value}))} placeholder="Ej. Kit Hello Kitty"/></label><label>Descripción<textarea value={form.prize_description} onChange={e=>setForm(f=>({...f,prize_description:e.target.value}))} placeholder="Describe brevemente el premio"/></label><div className="raffle-two"><label>Cantidad de números<input type="number" min="1" max="1000" value={form.total_numbers} onChange={e=>setForm(f=>({...f,total_numbers:e.target.value}))}/></label><label>Precio por número<input type="number" min="0" step="0.01" value={form.price_per_number} onChange={e=>setForm(f=>({...f,price_per_number:e.target.value}))}/></label></div><div className="raffle-schedule-admin">
+</div><div className="raffle-admin-settings"><label className="raffle-switch"><span><Volume2 size={17}/> Sonido de la ruleta <small>Solo lo configura administración</small></span><input type="checkbox" checked={form.sound_enabled!==false} onChange={e=>setForm(f=>({...f,sound_enabled:e.target.checked}))}/></label><label className="raffle-switch"><span><PartyPopper size={17}/> Mostrar confeti</span><input type="checkbox" checked={form.confetti_enabled!==false} onChange={e=>setForm(f=>({...f,confetti_enabled:e.target.checked}))}/></label></div><label>Número de rifa <small className="raffle-field-help">Solo administración. Puedes dejarlo vacío en una rifa nueva para asignarlo automáticamente.</small><input type="number" min="1" value={form.raffle_number??''} onChange={e=>setForm(f=>({...f,raffle_number:e.target.value}))} placeholder="Automático"/></label><label>Nombre del premio<input value={form.prize_name} onChange={e=>setForm(f=>({...f,prize_name:e.target.value}))} placeholder="Ej. Kit Hello Kitty"/></label><label>Descripción<textarea value={form.prize_description} onChange={e=>setForm(f=>({...f,prize_description:e.target.value}))} placeholder="Describe brevemente el premio"/></label><div className="raffle-two"><label>Cantidad de números<input type="number" min="1" max="1000" value={form.total_numbers} onChange={e=>setForm(f=>({...f,total_numbers:e.target.value}))}/></label><label>Precio por número<input type="number" min="0" step="0.01" value={form.price_per_number} onChange={e=>setForm(f=>({...f,price_per_number:e.target.value}))}/></label></div><div className="raffle-schedule-admin">
 <label className="raffle-switch raffle-schedule-switch"><span><CalendarDays size={17}/> Programar fecha del sorteo <small>Actívalo cuando quieras mostrar fecha, hora y contador.</small></span><input type="checkbox" checked={Boolean(form.schedule_enabled)} onChange={e=>setForm(f=>({...f,schedule_enabled:e.target.checked,draw_at:e.target.checked?f.draw_at:''}))}/></label>
 {form.schedule_enabled
   ? <label className="raffle-schedule-date">Fecha y hora del sorteo<input type="datetime-local" value={form.draw_at||''} onChange={e=>setForm(f=>({...f,draw_at:e.target.value}))}/></label>
