@@ -39,6 +39,46 @@ import './App.css'
 const MAX_PRODUCT_IMAGES = 15
 const MAX_IMAGE_SIDE = 1400
 const WEBP_QUALITY = 0.82
+const THUMB_IMAGE_SIDE = 520
+const THUMB_WEBP_QUALITY = 0.72
+
+function getProductThumbnailUrl(url) {
+  if (!url || !url.includes('/products/full/')) return url
+  return url.replace('/products/full/', '/products/thumb/')
+}
+
+
+const getPerformanceMode = () => {
+  if (typeof window === 'undefined') return 'balanced'
+
+  const memory = navigator.deviceMemory || 4
+  const cores = navigator.hardwareConcurrency || 4
+  const connection =
+    navigator.connection ||
+    navigator.mozConnection ||
+    navigator.webkitConnection
+
+  const saveData = connection?.saveData === true
+  const connectionType = connection?.effectiveType || '4g'
+  const slowConnection = ['slow-2g', '2g', '3g'].includes(connectionType)
+
+  if (saveData || slowConnection || memory <= 2 || cores <= 2) {
+    return 'lite'
+  }
+
+  if (memory >= 8 && cores >= 8 && connectionType === '4g') {
+    return 'high'
+  }
+
+  return 'balanced'
+}
+
+const PRODUCT_PRELOAD_MARGIN = {
+  high: '2400px 0px',
+  balanced: '1600px 0px',
+  lite: '800px 0px',
+}
+
 
 const DEFAULT_SITE = {
   business_name: 'Ventitas Chiquitas Cucui',
@@ -183,7 +223,72 @@ function ButtonMascot({
   )
 }
 
+
+function SmartProductImage({
+  src,
+  alt,
+  priority = false,
+  performanceMode = 'balanced',
+}) {
+  const imageRef = useRef(null)
+  const [shouldLoad, setShouldLoad] = useState(priority)
+  const thumbnailSrc = getProductThumbnailUrl(src)
+  const [displaySrc, setDisplaySrc] = useState(thumbnailSrc)
+
+  useEffect(() => {
+    setDisplaySrc(getProductThumbnailUrl(src))
+  }, [src])
+
+  useEffect(() => {
+    if (priority) {
+      setShouldLoad(true)
+      return undefined
+    }
+
+    const node = imageRef.current
+    if (!node || typeof IntersectionObserver === 'undefined') {
+      setShouldLoad(true)
+      return undefined
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setShouldLoad(true)
+          observer.disconnect()
+        }
+      },
+      {
+        root: null,
+        rootMargin:
+          PRODUCT_PRELOAD_MARGIN[performanceMode] ||
+          PRODUCT_PRELOAD_MARGIN.balanced,
+        threshold: 0.01,
+      },
+    )
+
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [priority, performanceMode])
+
+  return (
+    <img
+      ref={imageRef}
+      src={shouldLoad ? displaySrc : undefined}
+      alt={alt}
+      loading={priority ? 'eager' : 'lazy'}
+      fetchPriority={priority ? 'high' : 'auto'}
+      decoding="async"
+      draggable="false"
+      onError={() => {
+        if (displaySrc !== src) setDisplaySrc(src)
+      }}
+    />
+  )
+}
+
 function App() {
+  const [performanceMode] = useState(() => getPerformanceMode())
   const [products, setProducts] = useState([])
   const [categories, setCategories] = useState([
     'Todos',
@@ -507,6 +612,14 @@ function App() {
 
     setActiveRaffle(data || null)
   }
+
+  useEffect(() => {
+    document.documentElement.dataset.performance = performanceMode
+
+    return () => {
+      delete document.documentElement.dataset.performance
+    }
+  }, [performanceMode])
 
   const visibleProducts = useMemo(() => {
     const normalizedSearch = search
@@ -1113,7 +1226,11 @@ function App() {
     setProductForm(current=>({...current,color_options:normalizeColorOptions(current.color_options).map(c=>c.id===id?{...c,...patch}:c)}))
   }
 
-  async function optimizeImage(file) {
+  async function optimizeImage(
+    file,
+    maxSide = MAX_IMAGE_SIDE,
+    quality = WEBP_QUALITY,
+  ) {
     if (!file.type.startsWith('image/')) {
       throw new Error(
         'El archivo seleccionado no es una imagen.',
@@ -1126,20 +1243,17 @@ function App() {
       )
     }
 
-    const objectUrl =
-      URL.createObjectURL(file)
+    const objectUrl = URL.createObjectURL(file)
 
     try {
-      const image =
-        await new Promise(
-          (resolve, reject) => {
-            const img = new Image()
-
-            img.onload = () => resolve(img)
-            img.onerror = reject
-            img.src = objectUrl
-          },
-        )
+      const image = await new Promise(
+        (resolve, reject) => {
+          const img = new Image()
+          img.onload = () => resolve(img)
+          img.onerror = reject
+          img.src = objectUrl
+        },
+      )
 
       const longestSide = Math.max(
         image.naturalWidth,
@@ -1148,39 +1262,35 @@ function App() {
 
       const scale = Math.min(
         1,
-        MAX_IMAGE_SIDE / longestSide,
+        maxSide / longestSide,
       )
 
       const width = Math.max(
         1,
-        Math.round(
-          image.naturalWidth * scale,
-        ),
+        Math.round(image.naturalWidth * scale),
       )
 
       const height = Math.max(
         1,
-        Math.round(
-          image.naturalHeight * scale,
-        ),
+        Math.round(image.naturalHeight * scale),
       )
 
-      const canvas =
-        document.createElement('canvas')
-
+      const canvas = document.createElement('canvas')
       canvas.width = width
       canvas.height = height
 
-      const context =
-        canvas.getContext('2d', {
-          alpha: true,
-        })
+      const context = canvas.getContext('2d', {
+        alpha: true,
+      })
 
       if (!context) {
         throw new Error(
           'No se pudo preparar la imagen.',
         )
       }
+
+      context.imageSmoothingEnabled = true
+      context.imageSmoothingQuality = 'high'
 
       context.drawImage(
         image,
@@ -1190,42 +1300,36 @@ function App() {
         height,
       )
 
-      const blob =
-        await new Promise(
-          (resolve, reject) => {
-            canvas.toBlob(
-              (result) => {
-                if (result) {
-                  resolve(result)
-                } else {
-                  reject(
-                    new Error(
-                      'No se pudo comprimir la imagen.',
-                    ),
-                  )
-                }
-              },
-              'image/webp',
-              WEBP_QUALITY,
-            )
-          },
-        )
+      const blob = await new Promise(
+        (resolve, reject) => {
+          canvas.toBlob(
+            (result) => {
+              if (result) {
+                resolve(result)
+              } else {
+                reject(
+                  new Error(
+                    'No se pudo comprimir la imagen.',
+                  ),
+                )
+              }
+            },
+            'image/webp',
+            quality,
+          )
+        },
+      )
 
       const baseName =
         file.name
           .replace(/\.[^/.]+$/, '')
-          .replace(
-            /[^a-zA-Z0-9-_]+/g,
-            '-',
-          )
+          .replace(/[^a-zA-Z0-9-_]+/g, '-')
           .slice(0, 50) || 'producto'
 
       return new File(
         [blob],
         `${baseName}.webp`,
-        {
-          type: 'image/webp',
-        },
+        { type: 'image/webp' },
       )
     } finally {
       URL.revokeObjectURL(objectUrl)
@@ -1233,39 +1337,76 @@ function App() {
   }
 
   async function uploadProductImage(file) {
-    const optimized =
-      await optimizeImage(file)
+    const [optimized, thumbnail] =
+      await Promise.all([
+        optimizeImage(
+          file,
+          MAX_IMAGE_SIDE,
+          WEBP_QUALITY,
+        ),
+        optimizeImage(
+          file,
+          THUMB_IMAGE_SIDE,
+          THUMB_WEBP_QUALITY,
+        ),
+      ])
 
     const randomName =
       typeof crypto !== 'undefined' &&
       crypto.randomUUID
         ? crypto.randomUUID()
-        : Date.now()
+        : `${Date.now()}-${Math.random()
+            .toString(36)
+            .slice(2, 8)}`
 
-    const filePath =
-      `products/${randomName}.webp`
+    const fullPath =
+      `products/full/${randomName}.webp`
+    const thumbPath =
+      `products/thumb/${randomName}.webp`
 
-    const { error: uploadError } =
-      await supabase.storage
-        .from('productos')
-        .upload(
-          filePath,
-          optimized,
-          {
-            cacheControl: '31536000',
-            contentType: 'image/webp',
-            upsert: false,
-          },
-        )
+    const [fullUpload, thumbUpload] =
+      await Promise.all([
+        supabase.storage
+          .from('productos')
+          .upload(
+            fullPath,
+            optimized,
+            {
+              cacheControl: '31536000',
+              contentType: 'image/webp',
+              upsert: false,
+            },
+          ),
+        supabase.storage
+          .from('productos')
+          .upload(
+            thumbPath,
+            thumbnail,
+            {
+              cacheControl: '31536000',
+              contentType: 'image/webp',
+              upsert: false,
+            },
+          ),
+      ])
 
-    if (uploadError) {
-      throw uploadError
+    if (fullUpload.error) {
+      throw fullUpload.error
+    }
+
+    if (thumbUpload.error) {
+      // La imagen grande ya sirve; no bloqueamos el producto
+      // si únicamente falla la miniatura.
+      console.warn(
+        'No se pudo subir la miniatura:',
+        thumbUpload.error,
+      )
     }
 
     const { data } =
       supabase.storage
         .from('productos')
-        .getPublicUrl(filePath)
+        .getPublicUrl(fullPath)
 
     return data.publicUrl
   }
@@ -1809,14 +1950,18 @@ function App() {
                   }
                 >
                   <div className="product-image-wrapper">
-                    <img
-                      src={getProductImage(
-                        product,
-                      )}
+                    <SmartProductImage
+                      src={getProductImage(product)}
                       alt={product.name}
-                      loading={index < 6 ? 'eager' : 'lazy'}
-                      fetchPriority={index < 3 ? 'high' : 'auto'}
-                      decoding="async"
+                      priority={
+                        index <
+                        (performanceMode === 'high'
+                          ? 10
+                          : performanceMode === 'balanced'
+                            ? 8
+                            : 4)
+                      }
+                      performanceMode={performanceMode}
                     />
 
                     {normalizeImageUrls(product).length > 1 && (
